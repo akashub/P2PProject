@@ -24,13 +24,13 @@ def get_local_ip():
         print(f"Error determining local IP: {e}")
         return "localhost"
 
-def create_common_config(file_path, file_size=20971520, piece_size=32768):
+def create_common_config(file_path, file_name=None, file_size=20971520, piece_size=16384):
     """Create the Common.cfg file"""
     config = {
         "NumberOfPreferredNeighbors": 2,
         "UnchokingInterval": 5,
         "OptimisticUnchokingInterval": 15,
-        "FileName": "TheFile.dat",
+        "FileName": file_name if file_name else "TheFile.dat",
         "FileSize": file_size,
         "PieceSize": piece_size
     }
@@ -82,7 +82,7 @@ def create_peer_info(file_path, machine_config, this_machine=None):
                 print(f"Created peers_to_run.txt with peers: {', '.join(peers_to_run)}")
                 break
 
-def create_run_script(script_path, is_windows=False):
+def create_run_script(script_path, custom_file=None, is_windows=False):
     """Create a script to run all peers on this machine"""
     if is_windows:
         # Create a batch file for Windows
@@ -91,27 +91,82 @@ def create_run_script(script_path, is_windows=False):
             f.write('echo Starting peers on this machine...\n')
             f.write('for /f "tokens=*" %%a in (peers_to_run.txt) do (\n')
             f.write('    echo Starting peer %%a\n')
-            f.write('    start cmd /k python peerProcess.py %%a\n')
+            if custom_file:
+                f.write(f'    start cmd /k python peerProcess.py %%a --file "{custom_file}"\n')
+            else:
+                f.write('    start cmd /k python peerProcess.py %%a\n')
             f.write(')\n')
             f.write('echo All peers started.\n')
     else:
         # Create a bash script for Unix-like systems
         with open(script_path, 'w') as f:
             f.write('#!/bin/bash\n')
-            f.write('echo "Starting peers on this machine..."\n')
+            f.write('echo "Starting peers on this machine..."\n\n')
+            
             f.write('while read peer_id; do\n')
             f.write('    echo "Starting peer $peer_id"\n')
-            f.write('    gnome-terminal -- python peerProcess.py $peer_id &\n')
-            f.write('    # Alternatively, use xterm if gnome-terminal is not available:\n')
-            f.write('    # xterm -e "python peerProcess.py $peer_id" &\n')
-            f.write('    sleep 1\n')
-            f.write('done < peers_to_run.txt\n')
+            
+            # Add custom file parameter if provided
+            if custom_file:
+                file_param = f' --file "{custom_file}"'
+            else:
+                file_param = ''
+                
+            # Try different terminal options or run in background
+            f.write('    # Try to use gnome-terminal if available\n')
+            f.write(f'    if command -v gnome-terminal &> /dev/null; then\n')
+            f.write(f'        gnome-terminal -- python3 peerProcess.py $peer_id{file_param} &\n')
+            f.write('    # Try xterm if gnome-terminal is not available\n')
+            f.write(f'    elif command -v xterm &> /dev/null; then\n')
+            f.write(f'        xterm -e "python3 peerProcess.py $peer_id{file_param}" &\n')
+            f.write('    # Otherwise just run in background\n')
+            f.write('    else\n')
+            f.write(f'        python3 peerProcess.py $peer_id{file_param} > peer$peer_id.out 2>&1 &\n')
+            f.write('    fi\n')
+            f.write('    sleep 2\n')
+            f.write('done < peers_to_run.txt\n\n')
+            
             f.write('echo "All peers started."\n')
+            f.write('echo "To monitor output, use: tail -f peer*.out"\n')
         
         # Make the script executable
         os.chmod(script_path, 0o755)
     
     print(f"Created run script at {script_path}")
+
+def create_peer_directories(peer_ids, file_name, custom_file_path=None, file_size=None):
+    """Create directories for each peer and copy the file if needed"""
+    for i, peer_id in enumerate(peer_ids):
+        peer_dir = f"peer_{peer_id}"
+        
+        # Create peer directory if it doesn't exist
+        if not os.path.exists(peer_dir):
+            os.makedirs(peer_dir)
+            print(f"Created directory: {peer_dir}")
+        
+        # For the first peer, create or copy the file
+        if i == 0:  # First peer should have the file
+            file_path = os.path.join(peer_dir, file_name)
+            
+            # If custom file is provided, copy it
+            if custom_file_path and os.path.exists(custom_file_path):
+                shutil.copy2(custom_file_path, file_path)
+                print(f"Copied {custom_file_path} to {file_path}")
+            # Otherwise, create a dummy file if size is provided
+            elif file_size:
+                if not os.path.exists(file_path):
+                    # Check if we have the create_dummy_file.py script
+                    if os.path.exists("create_dummy_file.py"):
+                        import subprocess
+                        subprocess.run([sys.executable, "create_dummy_file.py", file_path, str(file_size)])
+                    else:
+                        # Create a basic file of the specified size
+                        with open(file_path, 'wb') as f:
+                            f.seek(file_size - 1)
+                            f.write(b'\0')
+                        print(f"Created empty file of size {file_size} bytes at {file_path}")
+                else:
+                    print(f"File already exists at {file_path}")
 
 def create_local_test_config():
     """Create a configuration for testing on a single machine with localhost"""
@@ -130,32 +185,6 @@ def create_local_test_config():
     ]
     return machine_config
 
-def create_peer_directories(peer_ids, file_name, file_size=None):
-    """Create directories for each peer and copy the file if needed"""
-    for peer_id in peer_ids:
-        peer_dir = f"peer_{peer_id}"
-        
-        # Create peer directory if it doesn't exist
-        if not os.path.exists(peer_dir):
-            os.makedirs(peer_dir)
-            print(f"Created directory: {peer_dir}")
-        
-        # For the first peer, create the file if it doesn't exist
-        if peer_id == "1001" and file_size is not None:
-            file_path = os.path.join(peer_dir, file_name)
-            if not os.path.exists(file_path):
-                print(f"Creating test file: {file_path}")
-                # Check if we have the create_dummy_file.py script
-                if os.path.exists("create_dummy_file.py"):
-                    import subprocess
-                    subprocess.run([sys.executable, "create_dummy_file.py", file_path, str(file_size)])
-                else:
-                    # Create a basic file of the specified size
-                    with open(file_path, 'wb') as f:
-                        f.seek(file_size - 1)
-                        f.write(b'\0')
-                    print(f"Created empty file of size {file_size} bytes")
-
 def main():
     parser = argparse.ArgumentParser(description="Multi-Machine Demo Setup for P2P File Sharing")
     
@@ -165,27 +194,49 @@ def main():
                         help="Path to a JSON configuration file")
     parser.add_argument("--file-size", type=int, default=20971520,
                         help="Size of the test file in bytes (default: 20MB)")
-    parser.add_argument("--piece-size", type=int, default=32768,
-                        help="Size of each piece in bytes (default: 32KB)")
+    parser.add_argument("--piece-size", type=int, default=16384,
+                        help="Size of each piece in bytes (default: 16KB)")
     parser.add_argument("--local-test", action="store_true",
                         help="Create a configuration for testing on a single machine with localhost")
     parser.add_argument("--windows", action="store_true",
                         help="Create Windows batch files instead of bash scripts")
+    parser.add_argument("--custom-file", type=str, default=None,
+                        help="Path to a custom file to use instead of generating a random one")
     
     args = parser.parse_args()
     
+    # Get custom file information
+    custom_file_name = None
+    custom_file_path = None
+    file_size = args.file_size
+    
+    if args.custom_file:
+        if os.path.exists(args.custom_file):
+            custom_file_path = args.custom_file
+            custom_file_name = os.path.basename(args.custom_file)
+            # Update file size to match the actual file
+            file_size = os.path.getsize(args.custom_file)
+            print(f"Using custom file: {custom_file_path} (size: {file_size} bytes)")
+        else:
+            print(f"Warning: Custom file {args.custom_file} not found. Will create a random file.")
+    
     # Create Common.cfg
-    create_common_config("Common.cfg", args.file_size, args.piece_size)
+    create_common_config("Common.cfg", custom_file_name, file_size, args.piece_size)
     
     # Determine the machine configuration
     if args.local_test:
         machine_config = create_local_test_config()
         create_peer_info("PeerInfo.cfg", machine_config, "Local Machine")
-        create_run_script("run_peers.bat" if args.windows else "run_peers.sh", args.windows)
+        create_run_script("run_peers.bat" if args.windows else "run_peers.sh", 
+                         custom_file_name, args.windows)
         
         # Create peer directories for the local test
         peer_ids = ["1001", "1002", "1003", "1004", "1005"]
-        create_peer_directories(peer_ids, "TheFile.dat", args.file_size)
+        create_peer_directories(peer_ids, 
+                               custom_file_name if custom_file_name else "TheFile.dat", 
+                               custom_file_path, 
+                               file_size)
+                               
     elif args.config:
         # Load configuration from JSON file
         try:
@@ -195,7 +246,8 @@ def main():
             create_peer_info("PeerInfo.cfg", machine_config, args.machine)
             
             if args.machine:
-                create_run_script("run_peers.bat" if args.windows else "run_peers.sh", args.windows)
+                create_run_script("run_peers.bat" if args.windows else "run_peers.sh",
+                                custom_file_name, args.windows)
                 
                 # Create peer directories for this machine
                 peer_ids = []
@@ -203,7 +255,10 @@ def main():
                     if machine["machine_name"] == args.machine:
                         peer_ids = [peer["id"] for peer in machine["peers"]]
                 
-                create_peer_directories(peer_ids, "TheFile.dat", args.file_size)
+                create_peer_directories(peer_ids, 
+                                      custom_file_name if custom_file_name else "TheFile.dat", 
+                                      custom_file_path, 
+                                      file_size)
         except Exception as e:
             print(f"Error loading configuration: {e}")
             sys.exit(1)
@@ -242,7 +297,10 @@ def main():
         print("Created sample configuration file: sample_config.json")
         print("Edit this file with the correct IP addresses for each machine.")
         print("Then run this script again with:")
-        print(f"    python {sys.argv[0]} --config sample_config.json --machine \"Machine A\"")
+        if custom_file_name:
+            print(f"    python {sys.argv[0]} --config sample_config.json --machine \"Machine A\" --custom-file \"{custom_file_path}\"")
+        else:
+            print(f"    python {sys.argv[0]} --config sample_config.json --machine \"Machine A\"")
         print("on Machine A, and similar commands on the other machines.")
 
 if __name__ == "__main__":

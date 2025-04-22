@@ -26,11 +26,11 @@ DEFAULT_CONFIG = {
 
 # Default peer information
 DEFAULT_PEERS = [
-    {"id": "1001", "host": "localhost", "port": "6008", "has_file": "1"},
-    {"id": "1002", "host": "localhost", "port": "6009", "has_file": "0"},
-    {"id": "1003", "host": "localhost", "port": "6010", "has_file": "0"},
-    {"id": "1004", "host": "localhost", "port": "6011", "has_file": "0"},
-    {"id": "1005", "host": "localhost", "port": "6012", "has_file": "0"}
+    {"id": "1001", "host": "localhost", "port": "6002", "has_file": "1"},
+    {"id": "1002", "host": "localhost", "port": "6003", "has_file": "0"},
+    {"id": "1003", "host": "localhost", "port": "6004", "has_file": "0"},
+    {"id": "1004", "host": "localhost", "port": "6005", "has_file": "0"},
+    {"id": "1005", "host": "localhost", "port": "6006", "has_file": "0"}
 ]
 
 def create_dummy_file(file_path, size):
@@ -74,8 +74,15 @@ def create_peer_info_file(peer_info_file, peers):
             f.write(f"{peer['id']} {peer['host']} {peer['port']} {peer['has_file']}\n")
     print(f"Peer information file created: {peer_info_file}")
 
-def create_peer_directories(peers, file_name, file_size):
-    """Create peer directories and copy the file to peers that should have it"""
+def create_peer_directories(peers, file_name, file_path=None, file_size=None):
+    """Create peer directories and copy the file to peers that should have it
+    
+    Args:
+        peers: List of peer dictionaries
+        file_name: Name of the file to use
+        file_path: Path to an existing file to copy (optional)
+        file_size: Size of file to create if file_path is not provided
+    """
     for peer in peers:
         # Create peer directory
         peer_dir = f"peer_{peer['id']}"
@@ -83,20 +90,57 @@ def create_peer_directories(peers, file_name, file_size):
             os.makedirs(peer_dir)
             print(f"Created peer directory: {peer_dir}")
         
-        # If peer has the file, create it in the peer directory
+        # If peer has the file, ensure it's in the peer directory
         if peer['has_file'] == "1":
-            file_path = os.path.join(peer_dir, file_name)
-            create_dummy_file(file_path, file_size)
+            dest_file = os.path.join(peer_dir, file_name)
+            
+            # If a specific file was provided, copy it
+            if file_path and os.path.exists(file_path):
+                shutil.copy2(file_path, dest_file)
+                print(f"Copied {file_path} to {dest_file}")
+            # Otherwise create a dummy file if size is provided
+            elif file_size:
+                create_dummy_file(dest_file, file_size)
+            else:
+                print(f"Warning: No file provided for peer {peer['id']} and no size specified for dummy file")
 
-def start_peers(peers, stagger_time=2):
+def create_run_script(script_path, peers_to_run, custom_file=None):
+    """Create a bash script to run the specified peers"""
+    with open(script_path, 'w') as f:
+        f.write('#!/bin/bash\n')
+        f.write('echo "Starting peers on this machine..."\n\n')
+        
+        for peer_id in peers_to_run:
+            f.write(f'# Start peer {peer_id}\n')
+            f.write(f'echo "Starting peer {peer_id}"\n')
+            
+            # Add custom file parameter if provided
+            file_param = f' --file "{custom_file}"' if custom_file else ''
+            
+            f.write(f'python3 peerProcess.py {peer_id}{file_param} > peer{peer_id}.out 2>&1 &\n')
+            f.write('sleep 2\n\n')
+        
+        f.write('echo "All peers started."\n')
+        f.write('echo "To monitor output, use: tail -f peer*.out"\n')
+    
+    # Make the script executable
+    os.chmod(script_path, 0o755)
+    print(f"Created run script at {script_path}")
+
+def start_peers(peers, custom_file=None, stagger_time=2):
     """Start peer processes with staggered timing"""
     processes = []
     for peer in peers:
         peer_id = peer['id']
         print(f"Starting peer {peer_id}...")
         
+        # Build command with custom file if provided
+        cmd = ["python3", "peerProcess.py", peer_id]
+        if custom_file:
+            cmd.extend(["--file", custom_file])
+        
         # Start the peer process
-        process = subprocess.Popen(["python3", "peerProcess.py", peer_id], 
+        process = subprocess.Popen(cmd, 
                                   stdout=subprocess.PIPE, 
                                   stderr=subprocess.PIPE,
                                   text=True,
@@ -135,24 +179,41 @@ def monitor_logs(num_seconds=30, interval=5):
         # Wait for next check
         time.sleep(interval)
 
-def setup_demo(config=None, peers=None, stagger_time=2, monitor_time=0):
-    """Set up the demo environment with specified configuration and peers"""
+def setup_demo(config=None, peers=None, custom_file=None, custom_file_path=None, stagger_time=2, monitor_time=0):
+    """Set up the demo environment with specified configuration and peers
+    
+    Args:
+        config: Dictionary of configuration values
+        peers: List of peer dictionaries
+        custom_file: Name of custom file to use instead of default
+        custom_file_path: Path to an existing file to use
+        stagger_time: Time to wait between starting peers (-1 to not start peers)
+        monitor_time: Time to monitor logs for (0 to not monitor)
+    """
     if config is None:
-        config = DEFAULT_CONFIG
+        config = DEFAULT_CONFIG.copy()
     
     if peers is None:
-        peers = DEFAULT_PEERS
+        peers = DEFAULT_PEERS.copy()
+    
+    # Update filename in config if custom file is provided
+    if custom_file:
+        config["FileName"] = custom_file
+        print(f"Using custom file name: {custom_file}")
     
     # Create configuration files
     create_config_file("Common.cfg", config)
     create_peer_info_file("PeerInfo.cfg", peers)
     
     # Create peer directories and files
-    create_peer_directories(peers, config["FileName"], config["FileSize"])
+    create_peer_directories(peers, config["FileName"], custom_file_path, config["FileSize"])
+    
+    # Create run script
+    create_run_script("run_peers.sh", [peer['id'] for peer in peers], custom_file)
     
     # Start peer processes if requested
     if stagger_time >= 0:
-        peer_processes = start_peers(peers, stagger_time)
+        peer_processes = start_peers(peers, custom_file, stagger_time)
         
         # Monitor logs if requested
         if monitor_time > 0:
@@ -200,6 +261,10 @@ def parse_arguments():
                         help="Time in seconds to monitor logs (0 to not monitor)")
     parser.add_argument("--setup-only", action="store_true",
                         help="Only set up configuration and files, don't start peers")
+    parser.add_argument("--local-test", action="store_true",
+                        help="Configure for testing on a single local machine")
+    parser.add_argument("--custom-file", type=str, default=None,
+                        help="Path to a custom file to use instead of generating a random one")
     
     return parser.parse_args()
 
@@ -209,7 +274,7 @@ def create_peers_list(num_peers):
     
     for i in range(1, num_peers + 1):
         peer_id = f"{1000 + i}"
-        port = 6000 + i
+        port = 6000 + i + 1  # Start at 6002 to avoid common ports
         has_file = "1" if i == 1 else "0"  # First peer has the file
         
         peers.append({
@@ -233,24 +298,47 @@ def main():
     # Create peers list based on number of peers
     peers = create_peers_list(args.num_peers)
     
-    try:
-        # Set up demo environment
-        if args.setup_only:
-            setup_demo(config, peers, -1, 0)
-            print("Demo environment set up successfully. Peers not started.")
+    # Handle custom file
+    custom_file_name = None
+    custom_file_path = None
+    
+    if args.custom_file:
+        if os.path.exists(args.custom_file):
+            custom_file_path = args.custom_file
+            custom_file_name = os.path.basename(args.custom_file)
+            # Update file size in config to match the actual file
+            config["FileSize"] = os.path.getsize(args.custom_file)
+            print(f"Using custom file: {custom_file_path} (size: {config['FileSize']} bytes)")
         else:
-            processes = setup_demo(config, peers, args.stagger_time, args.monitor_time)
+            print(f"Warning: Custom file {args.custom_file} not found. Will create a random file instead.")
+    
+    try:
+        # If --setup-only flag or --local-test is provided, adjust stagger_time
+        if args.setup_only:
+            stagger_time = -1  # Don't start peers
+        else:
+            stagger_time = args.stagger_time
             
-            # Keep running until interrupted if we started processes
-            if processes:
-                try:
-                    print("\nDemo is running. Press Ctrl+C to terminate.")
-                    while True:
-                        time.sleep(1)
-                except KeyboardInterrupt:
-                    print("\nDemo interrupted.")
-                finally:
-                    terminate_processes(processes)
+        # Set up demo environment
+        processes = setup_demo(
+            config, 
+            peers, 
+            custom_file_name, 
+            custom_file_path, 
+            stagger_time, 
+            args.monitor_time
+        )
+            
+        # Keep running until interrupted if we started processes
+        if processes:
+            try:
+                print("\nDemo is running. Press Ctrl+C to terminate.")
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\nDemo interrupted.")
+            finally:
+                terminate_processes(processes)
     except Exception as e:
         print(f"Error setting up demo environment: {e}")
         import traceback
