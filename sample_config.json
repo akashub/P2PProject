@@ -1,0 +1,45 @@
+[
+    {
+        "machine_name": "Machine A",
+        "host": "192.168.0.79",
+        "peers": [
+            {
+                "id": "1001",
+                "port": "6008",
+                "has_file": "1"
+            }
+        ]
+    },
+    {
+        "machine_name": "Machine B",
+        "host": "64.238.184.107",
+        "peers": [
+            {
+                "id": "1002",
+                "port": "6008",
+                "has_file": "0"
+            },
+            {
+                "id": "1003",
+                "port": "6009",
+                "has_file": "0"
+            }
+        ]
+    },
+    {
+        "machine_name": "Machine C",
+        "host": "<MACHINE_C_IP>",
+        "peers": [
+            {
+                "id": "1004",
+                "port": "6008",
+                "has_file": "0"
+            },
+            {
+                "id": "1005",
+                "port": "6009",
+                "has_file": "0"
+            }
+        ]
+    }
+]

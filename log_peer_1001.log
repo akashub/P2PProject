@@ -1,0 +1,38 @@
+Log file for Peer 1001
+Started at: 2025-04-22 10:02:19
+--------------------------------------------------------------------------------
+2025-04-22 10:02:21: Peer 1001 is connected from Peer 1002.
+2025-04-22 10:02:21: Peer 1001 received the 'interested' message from 1002.
+2025-04-22 10:02:22: Peer 1001 has the optimistically unchoked neighbor 1002.
+2025-04-22 10:02:22: Peer 1001 has the preferred neighbors .
+2025-04-22 10:02:23: Peer 1001 is connected from Peer 1003.
+2025-04-22 10:02:23: Peer 1001 received the 'interested' message from 1003.
+2025-04-22 10:02:24: Peer 1001 received the 'have' message from 1003 for the piece 19.
+2025-04-22 10:02:24: Peer 1001 received the 'have' message from 1003 for the piece 22.
+2025-04-22 10:02:24: Peer 1001 received the 'have' message from 1003 for the piece 1.
+2025-04-22 10:02:24: Peer 1001 received the 'have' message from 1003 for the piece 13.
+2025-04-22 10:02:24: Peer 1001 received the 'have' message from 1003 for the piece 32.
+2025-04-22 10:02:25: Peer 1001 is connected from Peer 1004.
+2025-04-22 10:02:25: Peer 1001 received the 'interested' message from 1004.
+2025-04-22 10:02:26: Peer 1001 received the 'have' message from 1004 for the piece 19.
+2025-04-22 10:02:26: Peer 1001 received the 'have' message from 1004 for the piece 22.
+2025-04-22 10:02:26: Peer 1001 received the 'have' message from 1004 for the piece 1.
+2025-04-22 10:02:26: Peer 1001 received the 'have' message from 1004 for the piece 32.
+2025-04-22 10:02:26: Peer 1001 received the 'have' message from 1004 for the piece 13.
+2025-04-22 10:02:26: Peer 1001 is unchoked by 1002.
+2025-04-22 10:02:27: Peer 1001 has the preferred neighbors 1004, 1003.
+2025-04-22 10:02:27: Peer 1001 is connected from Peer 1005.
+2025-04-22 10:02:27: Peer 1001 received the 'interested' message from 1005.
+2025-04-22 10:02:28: Peer 1001 received the 'have' message from 1005 for the piece 1.
+2025-04-22 10:02:28: Peer 1001 received the 'have' message from 1005 for the piece 13.
+2025-04-22 10:02:28: Peer 1001 received the 'have' message from 1005 for the piece 22.
+2025-04-22 10:02:28: Peer 1001 received the 'have' message from 1005 for the piece 19.
+2025-04-22 10:02:28: Peer 1001 received the 'have' message from 1005 for the piece 32.
+2025-04-22 10:02:28: Peer 1001 is unchoked by 1003.
+2025-04-22 10:02:29: Peer 1001 received the 'have' message from 1005 for the piece 48.
+2025-04-22 10:02:30: Peer 1001 is unchoked by 1004.
+2025-04-22 10:02:32: Peer 1001 has the optimistically unchoked neighbor 1005.
+2025-04-22 10:02:32: Peer 1001 has the preferred neighbors .
+2025-04-22 10:02:32: Peer 1001 is unchoked by 1005.
+2025-04-22 10:02:34: Peer 1001 received the 'have' message from 1003 for the piece 10.
+2025-04-22 10:02:34: Peer 1001 received the 'have' message from 1003 for the piece 17.

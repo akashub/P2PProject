@@ -900,6 +900,59 @@ class Client:
     #         try:
     #             peer.socket.sendall(request_message.get_message().encode('utf-8'))
     #             print(f"Sent request for piece {random_piece} to peer {peer.ID}")
+                
+    #             # Immediately receive the piece data (raw bytes)
+    #             try:
+    #                 piece_content = b''
+    #                 remaining = self.config.piece_size
+    #                 while remaining > 0:
+    #                     chunk = peer.socket.recv(min(BUFFER_SIZE, remaining))
+    #                     if not chunk:
+    #                         break
+    #                     piece_content += chunk
+    #                     remaining -= len(chunk)
+                    
+    #                 # Process the received piece
+    #                 if piece_content:
+    #                     print(f"Received piece {random_piece} ({len(piece_content)} bytes)")
+                        
+    #                     # Update bitfield
+    #                     with self.bitfield_lock:
+    #                         temp_bitfield = list(self.bitfield)
+    #                         temp_bitfield[random_piece] = '1'
+    #                         self.bitfield = ''.join(temp_bitfield)
+                        
+    #                     # Store piece
+    #                     with self.file_pieces_lock:
+    #                         self.file_pieces[random_piece] = piece_content
+                            
+    #                         # Write to file
+    #                         file_path = os.path.join(self.peer_directory, self.config.file_name)
+    #                         if not os.path.exists(file_path):
+    #                             with open(file_path, 'wb') as f:
+    #                                 f.seek(self.config.file_size - 1)
+    #                                 f.write(b'\0')
+                            
+    #                         with open(file_path, 'r+b') as f:
+    #                             f.seek(random_piece * self.config.piece_size)
+    #                             f.write(piece_content)
+                        
+    #                     # Log download
+    #                     peer.pieces_downloaded += 1
+    #                     num_pieces = self.bitfield.count('1')
+    #                     self.logger.log_downloading_piece(peer.ID, str(random_piece), num_pieces)
+                        
+    #                     # Check if we're done
+    #                     if num_pieces == NUM_PIECES:
+    #                         self.logger.log_download_completion()
+    #                         print("Download complete!")
+                        
+    #                     # Request another piece
+    #                     if not peer.choked:
+    #                         self.request_piece(peer)
+    #             except Exception as e:
+    #                 print(f"Error receiving piece data: {e}")
+    #                 self.pieces_requested[random_piece] = False  # Reset request flag
     #         except Exception as e:
     #             print(f"Failed to send request message to peer {peer.ID}: {e}")
     #             self.pieces_requested[random_piece] = False  # Reset request flag
@@ -938,20 +991,37 @@ class Client:
                 peer.socket.sendall(request_message.get_message().encode('utf-8'))
                 print(f"Sent request for piece {random_piece} to peer {peer.ID}")
                 
-                # Immediately receive the piece data (raw bytes)
+                # Immediately receive the piece data after sending request
+                start_time = time.time()
                 try:
                     piece_content = b''
                     remaining = self.config.piece_size
+                    
+                    # Set a timeout for piece reception
+                    peer.socket.settimeout(10.0)  # 10 second timeout
+                    
                     while remaining > 0:
                         chunk = peer.socket.recv(min(BUFFER_SIZE, remaining))
                         if not chunk:
+                            print(f"Connection closed while receiving piece {random_piece}")
                             break
                         piece_content += chunk
                         remaining -= len(chunk)
+                        
+                        # Progress indicator for large pieces
+                        if self.config.piece_size > 100000:  # Over 100KB
+                            progress = 100 * (self.config.piece_size - remaining) / self.config.piece_size
+                            if progress % 20 == 0:  # Show progress at 0%, 20%, 40%, etc.
+                                print(f"Download progress for piece {random_piece}: {progress:.1f}%")
+                    
+                    # Reset socket timeout to default
+                    peer.socket.settimeout(None)
                     
                     # Process the received piece
                     if piece_content:
-                        print(f"Received piece {random_piece} ({len(piece_content)} bytes)")
+                        download_time = time.time() - start_time
+                        download_rate = len(piece_content) / download_time if download_time > 0 else 0
+                        print(f"Received piece {random_piece} ({len(piece_content)} bytes) at {download_rate:.2f} B/s")
                         
                         # Update bitfield
                         with self.bitfield_lock:
@@ -966,27 +1036,52 @@ class Client:
                             # Write to file
                             file_path = os.path.join(self.peer_directory, self.config.file_name)
                             if not os.path.exists(file_path):
+                                # Create an empty file of the right size
                                 with open(file_path, 'wb') as f:
                                     f.seek(self.config.file_size - 1)
                                     f.write(b'\0')
                             
+                            # Write the piece to the correct position in the file
                             with open(file_path, 'r+b') as f:
                                 f.seek(random_piece * self.config.piece_size)
                                 f.write(piece_content)
                         
-                        # Log download
+                        # Log download and update statistics
                         peer.pieces_downloaded += 1
                         num_pieces = self.bitfield.count('1')
                         self.logger.log_downloading_piece(peer.ID, str(random_piece), num_pieces)
                         
-                        # Check if we're done
+                        # Send have messages to all peers
+                        have_message = self.make_have_message(str(random_piece))
+                        have_encoded = have_message.get_message().encode('utf-8')
+                        
+                        with self.peers_lock:
+                            for other_peer in self.peers:
+                                if other_peer.ID != peer.ID:  # Don't send to the peer we got the piece from
+                                    try:
+                                        other_peer.socket.sendall(have_encoded)
+                                        print(f"Sent have message for piece {random_piece} to peer {other_peer.ID}")
+                                    except Exception as e:
+                                        print(f"Error sending have message to peer {other_peer.ID}: {e}")
+                        
+                        # Check if download is complete
                         if num_pieces == NUM_PIECES:
                             self.logger.log_download_completion()
-                            print("Download complete!")
+                            print(f"Download complete! All {NUM_PIECES} pieces received.")
+                            self.reconstruct_file()
+                            
+                            # Tell all peers that they can terminate if everyone has the file
+                            # This would require additional protocol extension
                         
-                        # Request another piece
+                        # Request another piece if not choked
                         if not peer.choked:
                             self.request_piece(peer)
+                    else:
+                        print(f"Received empty piece data for piece {random_piece}")
+                        self.pieces_requested[random_piece] = False  # Reset request flag
+                except socket.timeout:
+                    print(f"Timeout while receiving piece {random_piece} from peer {peer.ID}")
+                    self.pieces_requested[random_piece] = False  # Reset request flag
                 except Exception as e:
                     print(f"Error receiving piece data: {e}")
                     self.pieces_requested[random_piece] = False  # Reset request flag
@@ -1003,6 +1098,8 @@ class Client:
                 print(f"Sent not interested message to peer {peer.ID}")
             except Exception as e:
                 print(f"Failed to send not interested message to peer {peer.ID}: {e}")
+
+
     def remove_peer(self, peer):
         """Remove peer from all collections and close socket"""
         try:
@@ -1033,18 +1130,67 @@ class Client:
         except Exception as e:
             print(f"Error removing peer {peer.ID}: {e}")
 
+    # def reconstruct_file(self):
+    #     """Reconstruct the complete file from pieces"""
+    #     try:
+    #         output_file = os.path.join(self.peer_directory, self.config.file_name)
+    #         print(f"Reconstructing file to: {output_file}")
+            
+    #         with open(output_file, 'wb') as f:
+    #             pieces_written = 0
+    #             for i in range(NUM_PIECES):
+    #                 if self.file_pieces[i]:
+    #                     f.write(self.file_pieces[i])
+    #                     pieces_written += 1
+    #                 else:
+    #                     print(f"Warning: Missing piece {i} during file reconstruction")
+    #                     # Write empty bytes for missing pieces
+    #                     if i < NUM_PIECES - 1:  # Not the last piece
+    #                         f.write(b'\0' * self.config.piece_size)
+    #                     else:  # Last piece might be smaller
+    #                         last_piece_size = self.config.file_size % self.config.piece_size
+    #                         if last_piece_size == 0:
+    #                             last_piece_size = self.config.piece_size
+    #                         f.write(b'\0' * last_piece_size)
+                
+    #         # Set file size to match original
+    #         os.truncate(output_file, self.config.file_size)
+    #         print(f"File reconstruction complete: {self.config.file_name}")
+    #         print(f"Wrote {pieces_written} of {NUM_PIECES} pieces")
+            
+    #     except Exception as e:
+    #         print(f"Error reconstructing file: {e}")
     def reconstruct_file(self):
-        """Reconstruct the complete file from pieces"""
+        """Reconstruct the complete file from pieces with validation"""
         try:
             output_file = os.path.join(self.peer_directory, self.config.file_name)
             print(f"Reconstructing file to: {output_file}")
             
+            # Create a backup of any existing file
+            if os.path.exists(output_file):
+                backup_file = output_file + ".bak"
+                try:
+                    import shutil
+                    shutil.copy2(output_file, backup_file)
+                    print(f"Created backup of existing file: {backup_file}")
+                except Exception as e:
+                    print(f"Failed to create backup: {e}")
+            
+            # Open file for writing
             with open(output_file, 'wb') as f:
                 pieces_written = 0
+                bytes_written = 0
+                
                 for i in range(NUM_PIECES):
                     if self.file_pieces[i]:
                         f.write(self.file_pieces[i])
                         pieces_written += 1
+                        bytes_written += len(self.file_pieces[i])
+                        
+                        # Progress indicator for large files
+                        if NUM_PIECES > 50 and i % (NUM_PIECES // 10) == 0:
+                            progress = 100 * i / NUM_PIECES
+                            print(f"File reconstruction progress: {progress:.1f}%")
                     else:
                         print(f"Warning: Missing piece {i} during file reconstruction")
                         # Write empty bytes for missing pieces
@@ -1056,10 +1202,25 @@ class Client:
                                 last_piece_size = self.config.piece_size
                             f.write(b'\0' * last_piece_size)
                 
-            # Set file size to match original
-            os.truncate(output_file, self.config.file_size)
+                # Set file size to match original
+                if bytes_written != self.config.file_size:
+                    print(f"Warning: Bytes written ({bytes_written}) doesn't match expected file size ({self.config.file_size})")
+                    print("Truncating file to expected size")
+                    f.truncate(self.config.file_size)
+            
             print(f"File reconstruction complete: {self.config.file_name}")
             print(f"Wrote {pieces_written} of {NUM_PIECES} pieces")
             
+            # Verify file size
+            actual_size = os.path.getsize(output_file)
+            if actual_size == self.config.file_size:
+                print(f"File size verification successful: {actual_size} bytes")
+            else:
+                print(f"File size verification failed: Expected {self.config.file_size} bytes, got {actual_size} bytes")
+            
+            return True
         except Exception as e:
             print(f"Error reconstructing file: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
