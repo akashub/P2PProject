@@ -250,7 +250,7 @@ For development and initial testing, you can run the entire system on a single m
 
 1. **Set up the environment**:
    ```bash
-   python setup_demo.py --file-size 20971520 --piece-size 16384 --local-test
+   python setup_demo.py --file-size 20971520 --piece-size 16384
    ```
 
 2. **Run all peers** (either manually or using the generated script):
