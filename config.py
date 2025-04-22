@@ -1,7 +1,7 @@
 class Config:
     def __init__(self, filepath):
         self.config_filepath = filepath
-        self.num_of_pref_neighbords = None
+        self.num_of_pref_neighbors = None
         self.unchoking_interval = None
         self.optimistic_unchoking_interval = None
         self.file_name = None
@@ -18,7 +18,7 @@ class Config:
                     param_value = params[1]
                     
                     if param_name == "NumberOfPreferredNeighbors":
-                        self.num_of_pref_neighbords = int(param_value)
+                        self.num_of_pref_neighbors = int(param_value)
                     elif param_name == "UnchokingInterval":
                         self.unchoking_interval = int(param_value)
                     elif param_name == "OptimisticUnchokingInterval":
@@ -35,7 +35,7 @@ class Config:
     def print_config(self):
         """Print all configuration parameters for debugging"""
         print("Configuration Parameters:")
-        print("NumberOfPreferredNeighbors:", self.num_of_pref_neighbords)
+        print("NumberOfPreferredNeighbors:", self.num_of_pref_neighbors)
         print("UnchokingInterval:", self.unchoking_interval)
         print("OptimisticUnchokingInterval:", self.optimistic_unchoking_interval)
         print("FileName:", self.file_name)

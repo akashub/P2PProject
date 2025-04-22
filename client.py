@@ -8,7 +8,7 @@ from logger import Logger
 from config import Config
 
 BUFFER_SIZE = 1024
-NUM_PIECES = 306  # This will be calculated based on file size and piece size
+#NUM_PIECES = 306  # This will be calculated based on file size and piece size
 
 # Decodes an integer into message type
 MESSAGE_TYPE_DECODE = {
@@ -49,10 +49,10 @@ class Message:
 
 class Peer:
     # Will be used to store information on peers
-    def __init__(self, socket_number, ID):
+    def __init__(self, socket_number, ID, num_pieces):
         self.socket = socket_number
         self.ID = ID
-        self.bitfield = "0" * NUM_PIECES
+        self.bitfield = "0" * num_pieces
         self.complete = False
         self.interested = False
         self.choked = True
@@ -73,10 +73,9 @@ class Client:
         self.other_peers = []  # Will be used for establishing connections
         
         # Calculate the number of pieces based on file size and piece size
-        global NUM_PIECES
-        NUM_PIECES = math.ceil(self.config.file_size / self.config.piece_size)
+        self.config.num_pieces = math.ceil(self.config.file_size / self.config.piece_size)
         
-        self.bitfield = "0" * NUM_PIECES
+        self.bitfield = "0" * self.config.num_pieces
         
         # Create peer directory if it doesn't exist
         self.peer_directory = f"peer_{self.ID}"
@@ -84,8 +83,8 @@ class Client:
             os.makedirs(self.peer_directory)
             
         # Initialize file pieces as empty
-        self.file_pieces = [None] * NUM_PIECES
-        self.pieces_requested = [False] * NUM_PIECES
+        self.file_pieces = [None] * self.config.num_pieces
+        self.pieces_requested = [False] * self.config.num_pieces
         
         # For selecting preferred neighbors
         self.download_rates = {}
@@ -105,7 +104,7 @@ class Client:
         print(f"  - Host: {host}")
         print(f"  - Port: {port}")
         print(f"  - Config: {config_filepath}")
-        print(f"  - Pieces: {NUM_PIECES}")
+        print(f"  - Pieces: {self.config.num_pieces}")
         print(f"  - Peer directory: {self.peer_directory}")
         
     def has_file(self):
@@ -125,7 +124,7 @@ class Client:
                 file_found = True
                 # Read file into memory in pieces
                 with open(path, 'rb') as f:
-                    for i in range(NUM_PIECES):
+                    for i in range(self.config.num_pieces):
                         try:
                             f.seek(i * self.config.piece_size)
                             piece_data = f.read(self.config.piece_size)
@@ -142,12 +141,12 @@ class Client:
                     print(f"Copied file to peer directory: {self.peer_directory}")
                 
                 # Update bitfield
-                self.bitfield = "1" * NUM_PIECES
+                self.bitfield = "1" * self.config.num_pieces
                 break
         
         if not file_found:
             print(f"Warning: File {self.config.file_name} not found in any expected locations!")
-            self.bitfield = "0" * NUM_PIECES
+            self.bitfield = "0" * self.config.num_pieces
             
     def setup(self, other_peers):
         """Initialize server socket and connect to existing peers"""
@@ -286,7 +285,7 @@ class Client:
             print(f"Sent reciprocal handshake to peer {peer_id}")
             
             # Add new connection to list of peers
-            peer = Peer(peer_socket, peer_id)
+            peer = Peer(peer_socket, peer_id, self.config.num_pieces)
             with self.peers_lock:
                 self.peers.append(peer)
             
@@ -294,7 +293,7 @@ class Client:
             self.logger.log_tcp_connection(peer.ID, False)
             
             # Send bitfield to peer if we have any pieces
-            if self.bitfield != "0" * NUM_PIECES:
+            if self.bitfield != "0" * self.config.num_pieces:
                 bitfield_message = self.make_bitfield_message(self.bitfield)
                 encoded_message = bitfield_message.get_message().encode('utf-8')
                 peer_socket.sendall(encoded_message)
@@ -337,7 +336,7 @@ class Client:
             peer_id = handshake_message[-4:]
             
             # Add new connection to list of peers
-            peer = Peer(peer_socket, peer_id)
+            peer = Peer(peer_socket, peer_id, self.config.num_pieces)
             with self.peers_lock:
                 self.peers.append(peer)
             
@@ -345,7 +344,7 @@ class Client:
             self.logger.log_tcp_connection(peer.ID, True)
             
             # Send bitfield to peer if we have any pieces
-            if self.bitfield != "0" * NUM_PIECES:
+            if self.bitfield != "0" * self.config.num_pieces:
                 bitfield_message = self.make_bitfield_message(self.bitfield)
                 encoded_message = bitfield_message.get_message().encode('utf-8')
                 peer_socket.sendall(encoded_message)
@@ -692,32 +691,36 @@ class Client:
                 candidates = [p for p in self.peers if p.interested]
                 print(f"Found {len(candidates)} interested peers")
                 
+                selected_peers = []
+
                 if not candidates:
                     print("No interested peers, skipping preferred neighbor selection")
                     continue
                     
                 # If we have the complete file, select randomly
-                if self.bitfield.count('1') == NUM_PIECES:
+                if self.bitfield.count('1') == self.config.num_pieces:
                     print("We have complete file, selecting neighbors randomly")
                     # Random selection from interested peers
                     selected_peers = random.sample(candidates, 
-                                                min(self.config.num_of_pref_neighbords, len(candidates)))
+                                                min(self.config.num_of_pref_neighbors, len(candidates)))
                 else:
                     print("Selecting neighbors based on download rates")
                     # Select based on download rates
                     sorted_peers = sorted(candidates, key=lambda p: p.last_download_rate, reverse=True)
-                    selected_peers = sorted_peers[:min(self.config.num_of_pref_neighbords, len(sorted_peers))]
+                    selected_peers = sorted_peers[:min(self.config.num_of_pref_neighbors, len(sorted_peers))]
                 
                 print(f"Selected {len(selected_peers)} preferred neighbors")
                     
                 # Unchoke selected peers
                 new_unchoked = selected_peers.copy()
-                
+                '''
+                #####Edited out, optimistically unchoked peer should not be in unchoked list unless it is earned based on download rate.
+                #####Optimistically unchoked is checked for separately when deciding to send data
                 # Don't disturb optimistically unchoked peer
                 if self.optimistically_unchoked_peer and self.optimistically_unchoked_peer not in new_unchoked:
                     new_unchoked.append(self.optimistically_unchoked_peer)
                     print(f"Added optimistically unchoked peer {self.optimistically_unchoked_peer.ID} to the unchoked list")
-                    
+                '''
                 # Handle peers that need to be choked
                 for peer in self.unchoked_peers:
                     if peer not in new_unchoked and peer != self.optimistically_unchoked_peer:
@@ -742,6 +745,7 @@ class Client:
                             
                 # Update unchoked peers list
                 self.unchoked_peers = [p for p in new_unchoked if p != self.optimistically_unchoked_peer]
+                print("Updating unchoked list with new preferred neighbors")
                 
                 # Log preferred neighbors change
                 pref_ids = [peer.ID for peer in self.unchoked_peers]
@@ -980,13 +984,16 @@ class Client:
                         self.logger.log_downloading_piece(peer.ID, str(random_piece), num_pieces)
                         
                         # Check if we're done
-                        if num_pieces == NUM_PIECES:
+                        if num_pieces == self.config.num_pieces:
                             self.logger.log_download_completion()
                             print("Download complete!")
                         
                         # Request another piece
                         if not peer.choked:
                             self.request_piece(peer)
+                        else:
+                            print(f"Peer {peer.ID} is choked, not requesting piece.")
+                            return
                 except Exception as e:
                     print(f"Error receiving piece data: {e}")
                     self.pieces_requested[random_piece] = False  # Reset request flag
@@ -1041,14 +1048,14 @@ class Client:
             
             with open(output_file, 'wb') as f:
                 pieces_written = 0
-                for i in range(NUM_PIECES):
+                for i in range(self.config.num_pieces):
                     if self.file_pieces[i]:
                         f.write(self.file_pieces[i])
                         pieces_written += 1
                     else:
                         print(f"Warning: Missing piece {i} during file reconstruction")
                         # Write empty bytes for missing pieces
-                        if i < NUM_PIECES - 1:  # Not the last piece
+                        if i < self.config.num_pieces - 1:  # Not the last piece
                             f.write(b'\0' * self.config.piece_size)
                         else:  # Last piece might be smaller
                             last_piece_size = self.config.file_size % self.config.piece_size
@@ -1059,7 +1066,18 @@ class Client:
             # Set file size to match original
             os.truncate(output_file, self.config.file_size)
             print(f"File reconstruction complete: {self.config.file_name}")
-            print(f"Wrote {pieces_written} of {NUM_PIECES} pieces")
+            print(f"Wrote {pieces_written} of {self.config.num_pieces} pieces")
             
         except Exception as e:
             print(f"Error reconstructing file: {e}")
+            
+
+
+    def recv_all(sock,n):
+        data = b''
+        while len(data) < n:
+            packet = sock.recv(n - len(data))
+            if not packet:
+                return None
+            data += packet
+        return data
