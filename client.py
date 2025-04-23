@@ -136,14 +136,17 @@ class Client:
                 with open(path, 'rb') as f:
                     for i in range(NUM_PIECES):
                         try:
-                            f.seek(i * self.config.piece_size)
-                            piece_data = f.read(self.config.piece_size)
+                            start = i * self.config.piece_size
+                            
+                            f.seek(start)
+                            if i == NUM_PIECES - 1:  # Last piece
+                                remaining_size = self.config.file_size - start
+                                piece_data = f.read(remaining_size)
+                                print("final piece: ", remaining_size)
+                            else:
+                                piece_data = f.read(self.config.piece_size)
+
                             if piece_data:
-                                # Handle the last piece properly
-                                if i == NUM_PIECES - 1:  # Last piece
-                                    # Calculate the actual size of the last piece
-                                    remaining_size = f.seek(0, 2) - (i * self.config.piece_size)
-                                    piece_data = f.read(remaining_size)  # Read the rest of the file
                                 self.file_pieces[i] = piece_data
                         except Exception as e:
                             print(f"Error reading piece {i}: {e}")
@@ -494,24 +497,22 @@ class Client:
                     if mlength > 1:  # Must have payload
                         piece_id_bytes = peer.socket.recv(mlength - 1)
                         if not piece_id_bytes:
+                            print("not piece_id_bytes")
                             break
                             
                         try:
                             piece_id = int(piece_id_bytes.decode('utf-8'))
-
-                            print(f"Peer {peer.ID} requested piece {piece_id}")
-                            print("available bitfield len:", len(self.bitfield))
-                            print(self.bitfield)
-                            print(peer.ID in [p.ID for p in self.unchoked_peers])
-                            print(peer == self.optimistically_unchoked_peer)
-                            print([p.ID for p in self.unchoked_peers])
+                            print("valid ID: ", piece_id)
+                            print(len(self.file_pieces))
                             # Only send if peer is unchoked and we have the piece
                             with self.peers_lock:
                                 if ((peer.ID in [p.ID for p in self.unchoked_peers] or (self.optimistically_unchoked_peer and peer.ID == self.optimistically_unchoked_peer.ID)) 
                                     and piece_id < len(self.bitfield) and self.bitfield[piece_id] == '1'):
-                                
+                                    print("waiting for lock")
                                     with self.file_pieces_lock:
+                                        print("entered lock")
                                         piece_content = self.file_pieces[piece_id]
+
                                         piece_id_bytes = piece_id.to_bytes(4, byteorder='big')
                                         payload = piece_id_bytes + piece_content
                                         if piece_content:
@@ -530,6 +531,7 @@ class Client:
                     
                     piece_id = int.from_bytes(payload[:4], byteorder='big')
                     piece_content = payload[4:]
+                    print("payload length: ", mlength)
 
                     with self.requests_lock:
                         if peer.requested_piece and piece_id != peer.requested_piece:
@@ -756,13 +758,13 @@ class Client:
         """Create a piece message with binary content"""
         # For piece messages, handle binary content differently
         if isinstance(piece_content, bytes):
-            # If piece_content is already bytes, convert to latin1 string
-            piece_content_str = piece_content.decode('latin1')
-            return Message("piece", piece_index.to_bytes(4, 'big') + piece_content)
+            # If piece_content is already bytes, just pass it as-is
+            piece_index_bytes = piece_index.to_bytes(4, 'big')  # Ensure piece_index is in bytes format
+            return Message("piece", piece_index_bytes + piece_content)
         else:
-            # If it's already a string
-            return Message("piece", piece_index + piece_content)
-    
+            # If it's a string, you may want to encode it properly (but usually, this should not happen)
+            piece_index_bytes = piece_index.to_bytes(4, 'big')
+            return Message("piece", piece_index_bytes + piece_content.encode('utf-8'))  # Convert string content to bytes
     def request_piece(self, peer):
         """Request a random piece from the peer and handle the response using the message protocol."""
         # Find pieces that peer has and we don't have
