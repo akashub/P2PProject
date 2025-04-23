@@ -7,9 +7,6 @@ import os
 from logger import Logger
 from config import Config
 
-BUFFER_SIZE = 1024
-NUM_PIECES = 306  # This will be calculated based on file size and piece size
-
 # Decodes an integer into message type
 MESSAGE_TYPE_DECODE = {
     "0": "choke",
@@ -49,10 +46,10 @@ class Message:
 
 class Peer:
     # Will be used to store information on peers
-    def __init__(self, socket_number, ID):
+    def __init__(self, socket_number, ID, num_pieces):
         self.socket = socket_number
         self.ID = ID
-        self.bitfield = "0" * NUM_PIECES
+        self.bitfield = "0" * num_pieces
         self.complete = False
         self.interested = False
         self.choked = True
@@ -73,10 +70,9 @@ class Client:
         self.other_peers = []  # Will be used for establishing connections
         
         # Calculate the number of pieces based on file size and piece size
-        global NUM_PIECES
-        NUM_PIECES = math.ceil(self.config.file_size / self.config.piece_size)
+        self.num_pieces = math.ceil(self.config.file_size / self.config.piece_size)
         
-        self.bitfield = "0" * NUM_PIECES
+        self.bitfield = "0" * self.num_pieces
         
         # Create peer directory if it doesn't exist
         self.peer_directory = f"peer_{self.ID}"
@@ -84,8 +80,8 @@ class Client:
             os.makedirs(self.peer_directory)
             
         # Initialize file pieces as empty
-        self.file_pieces = [None] * NUM_PIECES
-        self.pieces_requested = [False] * NUM_PIECES
+        self.file_pieces = [None] * self.num_pieces
+        self.pieces_requested = [False] * self.num_pieces
         
         # For selecting preferred neighbors
         self.download_rates = {}
@@ -105,7 +101,7 @@ class Client:
         print(f"  - Host: {host}")
         print(f"  - Port: {port}")
         print(f"  - Config: {config_filepath}")
-        print(f"  - Pieces: {NUM_PIECES}")
+        print(f"  - Pieces: {self.num_pieces}")
         print(f"  - Peer directory: {self.peer_directory}")
         
     def has_file(self):
@@ -115,7 +111,7 @@ class Client:
             os.path.join(self.peer_directory, self.config.file_name),
             os.path.join("project_config_file_small/project_config_file_small", self.ID, self.config.file_name),
             os.path.join("project_config_file_small", self.ID, self.config.file_name),
-            self.config.file_name
+            # self.config.file_name
         ]
         
         file_found = False
@@ -125,10 +121,11 @@ class Client:
                 file_found = True
                 # Read file into memory in pieces
                 with open(path, 'rb') as f:
-                    for i in range(NUM_PIECES):
+                    for i in range(self.num_pieces):
                         try:
                             f.seek(i * self.config.piece_size)
                             piece_data = f.read(self.config.piece_size)
+                            print(f"PIECE {i}: {piece_data[:20]}")
                             if piece_data:
                                 self.file_pieces[i] = piece_data
                         except Exception as e:
@@ -142,12 +139,12 @@ class Client:
                     print(f"Copied file to peer directory: {self.peer_directory}")
                 
                 # Update bitfield
-                self.bitfield = "1" * NUM_PIECES
+                self.bitfield = "1" * self.num_pieces
                 break
         
         if not file_found:
             print(f"Warning: File {self.config.file_name} not found in any expected locations!")
-            self.bitfield = "0" * NUM_PIECES
+            self.bitfield = "0" * self.num_pieces
             
     def setup(self, other_peers):
         """Initialize server socket and connect to existing peers"""
@@ -167,53 +164,30 @@ class Client:
         """Set up listening socket and accept incoming connections"""
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            # Always listen on localhost regardless of configured host
-            listen_host = "127.0.0.1" if self.host not in ["localhost", "127.0.0.1"] else self.host
-            self.s.bind((listen_host, self.port))
-            self.s.listen(10)
-            print(f"Listening on {listen_host}:{self.port} (configured host was {self.host})")
-            
-            while self.running:
-                try:
-                    # Wait for connections and set them up
-                    peer_socket, peer_address = self.s.accept()
-                    print(f"Accepted connection from {peer_address}")
-                    threading.Thread(target=self.setup_connection_from_listening,
-                                    args=(peer_socket, peer_address), daemon=True).start()
-                except socket.error as e:
-                    if not self.running:
-                        break
-                    print(f"Socket accept error: {e}")
-        except socket.error as e:
-            print(f"Socket binding error: {e}")
-            print("Trying alternative port...")
-            # Try an alternative port
+
+        listen_host = "127.0.0.1" if self.host not in ["localhost", "127.0.0.1"] else self.host
+
+        while True:
             try:
-                alt_port = self.port + 1000  # Try a port 1000 higher
-                self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                self.s.bind((listen_host, alt_port))
-                self.s.listen(10)
-                self.port = alt_port  # Update the port
-                print(f"Listening on {listen_host}:{alt_port} (alternative port)")
-                
-                while self.running:
-                    try:
-                        # Wait for connections and set them up
-                        peer_socket, peer_address = self.s.accept()
-                        print(f"Accepted connection from {peer_address}")
-                        threading.Thread(target=self.setup_connection_from_listening,
-                                        args=(peer_socket, peer_address), daemon=True).start()
-                    except socket.error as e:
-                        if not self.running:
-                            break
-                        print(f"Socket accept error: {e}")
+                self.s.bind((listen_host, self.port))
+                break
             except socket.error as e:
-                print(f"Alternative port also failed: {e}")
-        finally:
-            if self.s:
-                self.s.close()
+                self.port += 1
+
+        # Always listen on localhost regardless of configured host
+        self.s.listen(10)
+        print(f"Listening on {listen_host}:{self.port} (configured host was {self.host})")
+
+        while self.running:
+                # Wait for connections and set them up
+                peer_socket, peer_address = self.s.accept()
+                print(f"Accepted connection from {peer_address}")
+                threading.Thread(target=self.setup_connection_from_listening,
+                                args=(peer_socket, peer_address), daemon=True).start()
+
+
+        if self.s:
+            self.s.close()
                 
     def initiate_connections(self, other_peers):
         """Reach out to other peers"""
@@ -286,15 +260,16 @@ class Client:
             print(f"Sent reciprocal handshake to peer {peer_id}")
             
             # Add new connection to list of peers
-            peer = Peer(peer_socket, peer_id)
+            peer = Peer(peer_socket, peer_id, self.num_pieces)
             with self.peers_lock:
                 self.peers.append(peer)
+                print(peer.ID, "IS CONNECTED")
             
             # Log connection
             self.logger.log_tcp_connection(peer.ID, False)
             
             # Send bitfield to peer if we have any pieces
-            if self.bitfield != "0" * NUM_PIECES:
+            if self.bitfield != "0" * self.num_pieces:
                 bitfield_message = self.make_bitfield_message(self.bitfield)
                 encoded_message = bitfield_message.get_message().encode('utf-8')
                 peer_socket.sendall(encoded_message)
@@ -337,7 +312,7 @@ class Client:
             peer_id = handshake_message[-4:]
             
             # Add new connection to list of peers
-            peer = Peer(peer_socket, peer_id)
+            peer = Peer(peer_socket, peer_id, self.num_pieces)
             with self.peers_lock:
                 self.peers.append(peer)
             
@@ -345,7 +320,7 @@ class Client:
             self.logger.log_tcp_connection(peer.ID, True)
             
             # Send bitfield to peer if we have any pieces
-            if self.bitfield != "0" * NUM_PIECES:
+            if self.bitfield != "0" * self.num_pieces:
                 bitfield_message = self.make_bitfield_message(self.bitfield)
                 encoded_message = bitfield_message.get_message().encode('utf-8')
                 peer_socket.sendall(encoded_message)
@@ -479,36 +454,7 @@ class Client:
                             peer.socket.sendall(not_interested_message.get_message().encode('utf-8'))
                             peer.interested = False
                             print(f"Sent not interested message to peer {peer.ID}")
-                            
-                # elif mtype == "6":
-                #     # A piece has been requested
-                #     if mlength > 1:  # Must have payload
-                #         piece_id_bytes = peer.socket.recv(mlength - 1)
-                #         if not piece_id_bytes:
-                #             break
-                            
-                #         piece_id = int(piece_id_bytes.decode('utf-8'))
-                #         print(f"Peer {peer.ID} requested piece {piece_id}")
-                        
-                #         # Only send if peer is unchoked and we have the piece
-                # # Only send if peer is unchoked and we have the piece
-                # if ((peer in self.unchoked_peers or peer == self.optimistically_unchoked_peer) 
-                #     and piece_id < len(self.bitfield) and self.bitfield[piece_id] == '1'):
-                    
-                #     with self.file_pieces_lock:
-                #         piece_content = self.file_pieces[piece_id]
-                #         if piece_content:
-                #             try:
-                #                 # Convert piece ID to string, but keep content as binary
-                #                 piece_message = self.make_piece_message(str(piece_id), piece_content)
-                #                 # Send as binary data
-                #                 message = piece_message.get_message()
-                #                 peer.socket.sendall(message.encode('latin1'))
-                #                 print(f"Sent piece {piece_id} to peer {peer.ID}")
-                #             except Exception as e:
-                #                 print(f"Error sending piece {piece_id} to peer {peer.ID}: {e}")
-                #         else:
-                #             print(f"Cannot send piece {piece_id} to peer {peer.ID} (unchoked: {peer in self.unchoked_peers or peer == self.optimistically_unchoked_peer}, have piece: {piece_id < len(self.bitfield) and self.bitfield[piece_id] == '1'})")
+
                 elif mtype == "6":
                     # A piece has been requested
                     if mlength > 1:  # Must have payload
@@ -528,9 +474,8 @@ class Client:
                                     piece_content = self.file_pieces[piece_id]
                                     if piece_content:
                                         try:
-                                            # Instead of using our protocol format, use a very simple approach
-                                            # Just send the raw bytes and expect the receiver to know the length
                                             peer.socket.sendall(piece_content)
+                                            print(f"PIECE {piece_id} SENT: {piece_content[:10]}")
                                             print(f"Sent piece {piece_id} to peer {peer.ID}")
                                         except Exception as e:
                                             print(f"Error sending piece {piece_id} to peer {peer.ID}: {e}")
@@ -538,123 +483,11 @@ class Client:
                                 print(f"Cannot send piece {piece_id} - not authorized")
                         except ValueError as e:
                             print(f"Invalid piece ID received: {e}")
-                # # When receiving a piece
-                # elif mtype == "7":
-                #     # Receiving a piece from a peer
-                #     if mlength > 1:  # Must have payload
-                #         try:
-                #             # First read the piece ID
-                #             piece_id_bytes = peer.socket.recv(mlength - 1)
-                #             if not piece_id_bytes:
-                #                 break
-                                
-                #             piece_id = int(piece_id_bytes.decode('utf-8'))
-                #             print(f"Receiving piece {piece_id} from peer {peer.ID}")
-                            
-                #             # Now read the binary piece content directly
-                #             piece_content = peer.socket.recv(self.config.piece_size)
-                            
-                #             print(f"Received piece {piece_id} ({len(piece_content)} bytes)")
-                            
-                #             # Update our bitfield
-                #             with self.bitfield_lock:
-                #                 if piece_id < len(self.bitfield):
-                #                     temp_bitfield = list(self.bitfield)
-                #                     temp_bitfield[piece_id] = '1'
-                #                     self.bitfield = ''.join(temp_bitfield)
-                                    
-                #                     # Store the piece
-                #                     with self.file_pieces_lock:
-                #                         self.file_pieces[piece_id] = piece_content
-                #                         self.pieces_requested[piece_id] = False
-                                        
-                #                         # Make sure directory exists
-                #                         os.makedirs(self.peer_directory, exist_ok=True)
-                                        
-                #                         # Ensure file exists
-                #                         file_path = os.path.join(self.peer_directory, self.config.file_name)
-                #                         if not os.path.exists(file_path):
-                #                             with open(file_path, 'wb') as f:
-                #                                 f.seek(self.config.file_size - 1)
-                #                                 f.write(b'\0')
-                                        
-                #                         # Write piece to file
-                #                         with open(file_path, 'r+b') as f:
-                #                             f.seek(piece_id * self.config.piece_size)
-                #                             f.write(piece_content)
-                                    
-                #                     # Update stats
-                #                     peer.pieces_downloaded += 1
-                #                     num_pieces = self.bitfield.count('1')
-                #                     self.logger.log_downloading_piece(peer.ID, str(piece_id), num_pieces)
-                                    
-                #                     # Request another piece
-                #                     if not peer.choked:
-                #                         self.request_piece(peer)
-                #                 else:
-                #                     print(f"Warning: Received piece {piece_id} but bitfield length is only {len(self.bitfield)}")
-                                    
-                #         except Exception as e:
-                #             print(f"Error processing piece message: {e}")
-                #             import traceback
-                #             traceback.print_exc()
+
                 elif mtype == "7":
                     # Since we're ignoring the message format for piece data, this block is now empty
                     # All actual piece data is received directly after sending a request
-                    pass  # No need to handle piece reception as part of the protocol
-                        #     # Update our bitfield
-                        #     with self.bitfield_lock:
-                        #         if piece_id < len(self.bitfield):
-                        #             temp_bitfield = list(self.bitfield)
-                        #             temp_bitfield[piece_id] = '1'
-                        #             self.bitfield = ''.join(temp_bitfield)
-                                
-                        #     # Store the piece
-                        #     with self.file_pieces_lock:
-                        #         if piece_id < len(self.file_pieces):
-                        #             self.file_pieces[piece_id] = piece_content_bytes
-                        #             self.pieces_requested[piece_id] = False  # Reset request flag
-                                    
-                        #             # Write the piece to file
-                        #             with open(os.path.join(self.peer_directory, self.config.file_name), 'r+b') as f:
-                        #                 f.seek(piece_id * self.config.piece_size)
-                        #                 f.write(piece_content_bytes)
-                                        
-                        #     # Update download rate for this peer (for preferred neighbor selection)
-                        #     peer.pieces_downloaded += 1
-                            
-                        #     # Count how many pieces we have
-                        #     num_pieces = self.bitfield.count('1')
-                            
-                        #     # Log the piece download
-                        #     self.logger.log_downloading_piece(peer.ID, str(piece_id), num_pieces)
-                            
-                        #     # Send have message to all peers
-                        #     have_message = self.make_have_message(str(piece_id))
-                        #     encoded_message = have_message.get_message().encode('utf-8')
-                            
-                        #     with self.peers_lock:
-                        #         for other_peer in self.peers:
-                        #             if other_peer.ID != peer.ID:  # Don't send to the peer we got it from
-                        #                 try:
-                        #                     other_peer.socket.sendall(encoded_message)
-                        #                     print(f"Sent have message for piece {piece_id} to peer {other_peer.ID}")
-                        #                 except:
-                        #                     print(f"Failed to send have message to peer {other_peer.ID}")
-                                            
-                        #     # Check if we've completed the download
-                        #     if num_pieces == NUM_PIECES:
-                        #         self.logger.log_download_completion()
-                        #         print(f"Download complete! All {NUM_PIECES} pieces received.")
-                                
-                        #         # Reconstruct the complete file
-                        #         self.reconstruct_file()
-                                
-                        #     # Request another piece if the peer has more we need
-                        #     if not peer.choked:
-                        #         self.request_piece(peer)
-                        # except Exception as e:
-                        #     print(f"Error processing piece message from peer {peer.ID}: {e}")
+                    pass
                 else:
                     print(f"Unknown message type {mtype} from peer {peer.ID}")
                     # Skip the payload
@@ -697,7 +530,7 @@ class Client:
                     continue
                     
                 # If we have the complete file, select randomly
-                if self.bitfield.count('1') == NUM_PIECES:
+                if self.bitfield.count('1') == self.num_pieces:
                     print("We have complete file, selecting neighbors randomly")
                     # Random selection from interested peers
                     selected_peers = random.sample(candidates, 
@@ -875,97 +708,7 @@ class Client:
         else:
             # If it's already a string
             return Message("piece", piece_index + piece_content)
-    
-    # def request_piece(self, peer):
-    #     """Request a random piece that we need from the peer"""
-    #     # Find pieces that peer has and we don't have
-    #     desired_pieces = []
-    #     with self.bitfield_lock:
-    #         for i in range(min(len(self.bitfield), len(peer.bitfield))):
-    #             if self.bitfield[i] == '0' and peer.bitfield[i] == '1' and not self.pieces_requested[i]:
-    #                 desired_pieces.append(i)
-        
-    #     print(f"Pieces available from peer {peer.ID}: {len(desired_pieces)}")
-                    
-    #     if desired_pieces:
-    #         # Choose a random piece
-    #         random_piece = random.choice(desired_pieces)
-    #         print(f"Requesting piece {random_piece} from peer {peer.ID}")
-            
-    #         # Mark as requested
-    #         self.pieces_requested[random_piece] = True
-            
-    #         # Create request message and send
-    #         request_message = self.make_request_message(str(random_piece))
-    #         try:
-    #             peer.socket.sendall(request_message.get_message().encode('utf-8'))
-    #             print(f"Sent request for piece {random_piece} to peer {peer.ID}")
-                
-    #             # Immediately receive the piece data (raw bytes)
-    #             try:
-    #                 piece_content = b''
-    #                 remaining = self.config.piece_size
-    #                 while remaining > 0:
-    #                     chunk = peer.socket.recv(min(BUFFER_SIZE, remaining))
-    #                     if not chunk:
-    #                         break
-    #                     piece_content += chunk
-    #                     remaining -= len(chunk)
-                    
-    #                 # Process the received piece
-    #                 if piece_content:
-    #                     print(f"Received piece {random_piece} ({len(piece_content)} bytes)")
-                        
-    #                     # Update bitfield
-    #                     with self.bitfield_lock:
-    #                         temp_bitfield = list(self.bitfield)
-    #                         temp_bitfield[random_piece] = '1'
-    #                         self.bitfield = ''.join(temp_bitfield)
-                        
-    #                     # Store piece
-    #                     with self.file_pieces_lock:
-    #                         self.file_pieces[random_piece] = piece_content
-                            
-    #                         # Write to file
-    #                         file_path = os.path.join(self.peer_directory, self.config.file_name)
-    #                         if not os.path.exists(file_path):
-    #                             with open(file_path, 'wb') as f:
-    #                                 f.seek(self.config.file_size - 1)
-    #                                 f.write(b'\0')
-                            
-    #                         with open(file_path, 'r+b') as f:
-    #                             f.seek(random_piece * self.config.piece_size)
-    #                             f.write(piece_content)
-                        
-    #                     # Log download
-    #                     peer.pieces_downloaded += 1
-    #                     num_pieces = self.bitfield.count('1')
-    #                     self.logger.log_downloading_piece(peer.ID, str(random_piece), num_pieces)
-                        
-    #                     # Check if we're done
-    #                     if num_pieces == NUM_PIECES:
-    #                         self.logger.log_download_completion()
-    #                         print("Download complete!")
-                        
-    #                     # Request another piece
-    #                     if not peer.choked:
-    #                         self.request_piece(peer)
-    #             except Exception as e:
-    #                 print(f"Error receiving piece data: {e}")
-    #                 self.pieces_requested[random_piece] = False  # Reset request flag
-    #         except Exception as e:
-    #             print(f"Failed to send request message to peer {peer.ID}: {e}")
-    #             self.pieces_requested[random_piece] = False  # Reset request flag
-    #     elif peer.interested:
-    #         # No more pieces needed from this peer, send not interested
-    #         print(f"No more pieces needed from peer {peer.ID}, sending not interested")
-    #         not_interested_message = self.make_not_interested_message()
-    #         try:
-    #             peer.socket.sendall(not_interested_message.get_message().encode('utf-8'))
-    #             peer.interested = False
-    #             print(f"Sent not interested message to peer {peer.ID}")
-    #         except Exception as e:
-    #             print(f"Failed to send not interested message to peer {peer.ID}: {e}")
+
     def request_piece(self, peer):
         """Request a random piece that we need from the peer"""
         # Find pieces that peer has and we don't have
@@ -1001,7 +744,7 @@ class Client:
                     peer.socket.settimeout(10.0)  # 10 second timeout
                     
                     while remaining > 0:
-                        chunk = peer.socket.recv(min(BUFFER_SIZE, remaining))
+                        chunk = peer.socket.recv(min(self.config.piece_size, remaining))
                         if not chunk:
                             print(f"Connection closed while receiving piece {random_piece}")
                             break
@@ -1022,7 +765,7 @@ class Client:
                         download_time = time.time() - start_time
                         download_rate = len(piece_content) / download_time if download_time > 0 else 0
                         print(f"Received piece {random_piece} ({len(piece_content)} bytes) at {download_rate:.2f} B/s")
-                        
+
                         # Update bitfield
                         with self.bitfield_lock:
                             temp_bitfield = list(self.bitfield)
@@ -1048,8 +791,8 @@ class Client:
                         
                         # Log download and update statistics
                         peer.pieces_downloaded += 1
-                        num_pieces = self.bitfield.count('1')
-                        self.logger.log_downloading_piece(peer.ID, str(random_piece), num_pieces)
+                        cur_num_pieces = self.bitfield.count('1')
+                        self.logger.log_downloading_piece(peer.ID, str(random_piece), cur_num_pieces)
                         
                         # Send have messages to all peers
                         have_message = self.make_have_message(str(random_piece))
@@ -1065,9 +808,9 @@ class Client:
                                         print(f"Error sending have message to peer {other_peer.ID}: {e}")
                         
                         # Check if download is complete
-                        if num_pieces == NUM_PIECES:
+                        if cur_num_pieces == self.num_pieces:
                             self.logger.log_download_completion()
-                            print(f"Download complete! All {NUM_PIECES} pieces received.")
+                            print(f"Download complete! All {self.num_pieces} pieces received.")
                             self.reconstruct_file()
                             
                             # Tell all peers that they can terminate if everyone has the file
@@ -1130,36 +873,6 @@ class Client:
         except Exception as e:
             print(f"Error removing peer {peer.ID}: {e}")
 
-    # def reconstruct_file(self):
-    #     """Reconstruct the complete file from pieces"""
-    #     try:
-    #         output_file = os.path.join(self.peer_directory, self.config.file_name)
-    #         print(f"Reconstructing file to: {output_file}")
-            
-    #         with open(output_file, 'wb') as f:
-    #             pieces_written = 0
-    #             for i in range(NUM_PIECES):
-    #                 if self.file_pieces[i]:
-    #                     f.write(self.file_pieces[i])
-    #                     pieces_written += 1
-    #                 else:
-    #                     print(f"Warning: Missing piece {i} during file reconstruction")
-    #                     # Write empty bytes for missing pieces
-    #                     if i < NUM_PIECES - 1:  # Not the last piece
-    #                         f.write(b'\0' * self.config.piece_size)
-    #                     else:  # Last piece might be smaller
-    #                         last_piece_size = self.config.file_size % self.config.piece_size
-    #                         if last_piece_size == 0:
-    #                             last_piece_size = self.config.piece_size
-    #                         f.write(b'\0' * last_piece_size)
-                
-    #         # Set file size to match original
-    #         os.truncate(output_file, self.config.file_size)
-    #         print(f"File reconstruction complete: {self.config.file_name}")
-    #         print(f"Wrote {pieces_written} of {NUM_PIECES} pieces")
-            
-    #     except Exception as e:
-    #         print(f"Error reconstructing file: {e}")
     def reconstruct_file(self):
         """Reconstruct the complete file from pieces with validation"""
         try:
@@ -1181,20 +894,21 @@ class Client:
                 pieces_written = 0
                 bytes_written = 0
                 
-                for i in range(NUM_PIECES):
+                for i in range(self.num_pieces):
+                    print(f"PIECE {i}: {self.file_pieces[i][:20]}")
                     if self.file_pieces[i]:
                         f.write(self.file_pieces[i])
                         pieces_written += 1
                         bytes_written += len(self.file_pieces[i])
                         
                         # Progress indicator for large files
-                        if NUM_PIECES > 50 and i % (NUM_PIECES // 10) == 0:
-                            progress = 100 * i / NUM_PIECES
+                        if self.num_pieces > 50 and i % (self.num_pieces // 10) == 0:
+                            progress = 100 * i / self.num_pieces
                             print(f"File reconstruction progress: {progress:.1f}%")
                     else:
                         print(f"Warning: Missing piece {i} during file reconstruction")
                         # Write empty bytes for missing pieces
-                        if i < NUM_PIECES - 1:  # Not the last piece
+                        if i < self.num_pieces - 1:  # Not the last piece
                             f.write(b'\0' * self.config.piece_size)
                         else:  # Last piece might be smaller
                             last_piece_size = self.config.file_size % self.config.piece_size
@@ -1209,7 +923,7 @@ class Client:
                     f.truncate(self.config.file_size)
             
             print(f"File reconstruction complete: {self.config.file_name}")
-            print(f"Wrote {pieces_written} of {NUM_PIECES} pieces")
+            print(f"Wrote {pieces_written} of {self.num_pieces} pieces")
             
             # Verify file size
             actual_size = os.path.getsize(output_file)
