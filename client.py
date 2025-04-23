@@ -2,22 +2,13 @@ import random
 import socket
 import threading
 import time
-import math
 import os
 from logger import Logger
 from config import Config
+from shutil import copy2
+from math import ceil
 
-# Decodes an integer into message type
-MESSAGE_TYPE_DECODE = {
-    "0": "choke",
-    "1": "unchoke",
-    "2": "interested",
-    "3": "not interested",
-    "4": "have",
-    "5": "bitfield",
-    "6": "request",
-    "7": "piece",
-}
+
 
 MESSAGE_TYPE_ENCODE = {
     "choke": "0",
@@ -70,7 +61,7 @@ class Client:
         self.other_peers = []  # Will be used for establishing connections
         
         # Calculate the number of pieces based on file size and piece size
-        self.num_pieces = math.ceil(self.config.file_size / self.config.piece_size)
+        self.num_pieces = ceil(self.config.file_size / self.config.piece_size)
         
         self.bitfield = "0" * self.num_pieces
         
@@ -94,6 +85,7 @@ class Client:
         
         # For threading control
         self.running = True
+        self.s = None
         
         # Debug info
         print(f"Client initialized with:")
@@ -134,8 +126,7 @@ class Client:
                 # Copy file to peer directory if it's not already there
                 if path != os.path.join(self.peer_directory, self.config.file_name):
                     os.makedirs(self.peer_directory, exist_ok=True)
-                    import shutil
-                    shutil.copy2(path, os.path.join(self.peer_directory, self.config.file_name))
+                    copy2(path, os.path.join(self.peer_directory, self.config.file_name))
                     print(f"Copied file to peer directory: {self.peer_directory}")
                 
                 # Update bitfield
@@ -171,7 +162,7 @@ class Client:
             try:
                 self.s.bind((listen_host, self.port))
                 break
-            except socket.error as e:
+            except socket.error:
                 self.port += 1
 
         # Always listen on localhost regardless of configured host
@@ -183,55 +174,37 @@ class Client:
                 peer_socket, peer_address = self.s.accept()
                 print(f"Accepted connection from {peer_address}")
                 threading.Thread(target=self.setup_connection_from_listening,
-                                args=(peer_socket, peer_address), daemon=True).start()
-
+                                args=(peer_socket,), daemon=True).start()
 
         if self.s:
             self.s.close()
+
+    def try_connect(self, peer_info, delay):
+        time.sleep(delay)
+        if not self.running:
+            return
+        try:
+            host = "127.0.0.1" if peer_info[0] not in ["localhost", "127.0.0.1"] else peer_info[0]
+            port = int(peer_info[1])
+            print(f"Retrying connection to {host}:{port}")
+
+            peer_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            peer_socket.settimeout(3)
+            peer_socket.connect((host, port))
+
+            threading.Thread(target=self.setup_connection_from_initiating,
+                             args=(peer_socket, host), daemon=True).start()
+        except (socket.error, ConnectionRefusedError) as e:
+            threading.Thread(target=self.try_connect, args=(peer_info, delay), daemon=True).start()
+            print(f"try failed: {e}")
                 
     def initiate_connections(self, other_peers):
         """Reach out to other peers"""
         for peer in other_peers:
-            try:
-                peer_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                peer_socket.settimeout(3)
-                
-                # Always use localhost for testing
-                host = "127.0.0.1" if peer[0] not in ["localhost", "127.0.0.1"] else peer[0]
-                port = int(peer[1])
-                
-                print(f"Attempting to connect to {host}:{port}")
-                peer_socket.connect((host, port))
-                
-                threading.Thread(target=self.setup_connection_from_initiating,
-                                args=(peer_socket, host), daemon=True).start()
-            except (socket.error, ConnectionRefusedError) as e:
-                print(f"Could not connect to peer at {peer[0]}:{peer[1]} - {e}")
-                print("The peer may not be started yet, will retry later")
-                
-                # Schedule a retry after a delay
-                def retry_connect(peer_info, delay):
-                    time.sleep(delay)
-                    if not self.running:
-                        return
-                    try:
-                        host = "127.0.0.1" if peer_info[0] not in ["localhost", "127.0.0.1"] else peer_info[0]
-                        port = int(peer_info[1])
-                        print(f"Retrying connection to {host}:{port}")
-                        
-                        peer_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        peer_socket.settimeout(3)
-                        peer_socket.connect((host, port))
-                        
-                        threading.Thread(target=self.setup_connection_from_initiating,
-                                        args=(peer_socket, host), daemon=True).start()
-                    except (socket.error, ConnectionRefusedError) as e:
-                        print(f"Retry failed: {e}")
-                
-                # Retry after 5 seconds
-                threading.Thread(target=retry_connect, args=(peer, 5), daemon=True).start()
-                
-    def setup_connection_from_listening(self, peer_socket, peer_address):
+            self.try_connect(peer, 5)
+
+
+    def setup_connection_from_listening(self, peer_socket):
         """Handle incoming connections from other peers"""
         try:
             # When a peer connects, they send the first handshake
@@ -253,6 +226,11 @@ class Client:
                 
             # Extract peer ID from handshake
             peer_id = handshake_message[-4:]
+
+            if peer_id in [p.ID for p in self.peers] or peer_id == self.ID:
+                print(f"Peer {peer_id} is already connected, closing connection")
+                peer_socket.close()
+                return
             
             # Reciprocal handshake is then sent
             reciprocal_handshake = self.create_handshake()
@@ -462,27 +440,28 @@ class Client:
                         if not piece_id_bytes:
                             break
                             
-                        try:
-                            piece_id = int(piece_id_bytes.decode('utf-8'))
-                            print(f"Peer {peer.ID} requested piece {piece_id}")
-                            
-                            # Only send if peer is unchoked and we have the piece
-                            if ((peer in self.unchoked_peers or peer == self.optimistically_unchoked_peer) 
-                                and piece_id < len(self.bitfield) and self.bitfield[piece_id] == '1'):
-                                
-                                with self.file_pieces_lock:
-                                    piece_content = self.file_pieces[piece_id]
-                                    if piece_content:
-                                        try:
-                                            peer.socket.sendall(piece_content)
-                                            print(f"PIECE {piece_id} SENT: {piece_content[:10]}")
-                                            print(f"Sent piece {piece_id} to peer {peer.ID}")
-                                        except Exception as e:
-                                            print(f"Error sending piece {piece_id} to peer {peer.ID}: {e}")
-                            else:
-                                print(f"Cannot send piece {piece_id} - not authorized")
-                        except ValueError as e:
-                            print(f"Invalid piece ID received: {e}")
+                        piece_id = int(piece_id_bytes.decode('utf-8'))
+                        print(f"Peer {peer.ID} requested piece {piece_id}")
+                        if piece_id > self.num_pieces - 1:
+                            print(f"Invalid piece ID received: {piece_id}")
+                            continue
+
+                        # Only send if peer is unchoked and we have the piece
+                        if ((peer in self.unchoked_peers or peer == self.optimistically_unchoked_peer)
+                            and piece_id < len(self.bitfield) and self.bitfield[piece_id] == '1'):
+
+                            with self.file_pieces_lock:
+                                piece_content = self.file_pieces[piece_id]
+                                if piece_content:
+                                    try:
+                                        peer.socket.sendall(piece_content)
+                                        print(f"PIECE {piece_id} SENT: {piece_content[:10]}")
+                                        print(f"Sent piece {piece_id} to peer {peer.ID}")
+                                    except Exception as e:
+                                        print(f"Error sending piece {piece_id} to peer {peer.ID}: {e}")
+                        else:
+                            print(f"Cannot send piece {piece_id} - not authorized")
+
 
                 elif mtype == "7":
                     # Since we're ignoring the message format for piece data, this block is now empty
@@ -518,7 +497,7 @@ class Client:
                 # Calculate download rates for each peer
                 for peer in self.peers:
                     peer.last_download_rate = peer.pieces_downloaded
-                    print(f"Peer {peer.ID} download rate: {peer.last_download_rate} pieces")
+                    print(f"Peer {peer.ID} download rate: {peer.last_download_rate} pieces and is intereseted?: {peer.interested}")
                     peer.pieces_downloaded = 0  # Reset for next interval
                     
                 # Get interested peers
@@ -556,6 +535,7 @@ class Client:
                     if peer not in new_unchoked and peer != self.optimistically_unchoked_peer:
                         print(f"Choking peer {peer.ID}")
                         choke_message = self.make_choke_message()
+                        peer.choked = True
                         try:
                             peer.socket.sendall(choke_message.get_message().encode('utf-8'))
                             print(f"Sent choke message to peer {peer.ID}")
@@ -569,6 +549,7 @@ class Client:
                         unchoke_message = self.make_unchoke_message()
                         try:
                             peer.socket.sendall(unchoke_message.get_message().encode('utf-8'))
+                            peer.choked = False
                             print(f"Sent unchoke message to peer {peer.ID}")
                         except Exception as e:
                             print(f"Failed to send unchoke message to peer {peer.ID}: {e}")
@@ -691,6 +672,7 @@ class Client:
         return Message("have", piece_index)
         
     def make_bitfield_message(self, bitfield):
+        print(self.ID, "HAS SEND A BITFIELD MESSAGE")
         """Create a bitfield message"""
         return Message("bitfield", bitfield)
         
@@ -714,7 +696,7 @@ class Client:
         # Find pieces that peer has and we don't have
         desired_pieces = []
         with self.bitfield_lock:
-            for i in range(min(len(self.bitfield), len(peer.bitfield))):
+            for i in range(len(peer.bitfield)):
                 if self.bitfield[i] == '0' and peer.bitfield[i] == '1' and not self.pieces_requested[i]:
                     desired_pieces.append(i)
         
@@ -837,7 +819,7 @@ class Client:
             not_interested_message = self.make_not_interested_message()
             try:
                 peer.socket.sendall(not_interested_message.get_message().encode('utf-8'))
-                peer.interested = False
+                # peer.interested = False
                 print(f"Sent not interested message to peer {peer.ID}")
             except Exception as e:
                 print(f"Failed to send not interested message to peer {peer.ID}: {e}")
