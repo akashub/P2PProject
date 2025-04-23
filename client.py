@@ -532,7 +532,7 @@ class Client:
                     
                 # Handle peers that need to be choked
                 for peer in self.unchoked_peers:
-                    if peer not in new_unchoked and peer != self.optimistically_unchoked_peer:
+                    if peer not in new_unchoked and peer != self.optimistically_unchoked_peer and not peer.choked:
                         print(f"Choking peer {peer.ID}")
                         choke_message = self.make_choke_message()
                         peer.choked = True
@@ -544,7 +544,7 @@ class Client:
                             
                 # Handle peers that need to be unchoked
                 for peer in new_unchoked:
-                    if peer not in self.unchoked_peers:
+                    if peer not in self.unchoked_peers and peer.choked:
                         print(f"Unchoking peer {peer.ID}")
                         unchoke_message = self.make_unchoke_message()
                         try:
@@ -583,8 +583,7 @@ class Client:
                 print(f"Selected peer {selected_peer.ID} as optimistically unchoked neighbor")
                 
                 # Unchoke the previously optimistically unchoked peer if not in preferred neighbors
-                if (self.optimistically_unchoked_peer and 
-                    self.optimistically_unchoked_peer not in self.unchoked_peers):
+                if self.optimistically_unchoked_peer and self.optimistically_unchoked_peer not in self.unchoked_peers:
                     print(f"Choking previous optimistically unchoked peer {self.optimistically_unchoked_peer.ID}")
                     choke_message = self.make_choke_message()
                     try:
