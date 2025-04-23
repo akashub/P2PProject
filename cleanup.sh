@@ -25,6 +25,10 @@ for port in $(seq 6000 7100); do
     fi
 done
 
+# Remove any socket connections that might be lingering in TIME_WAIT
+echo "Checking for lingering socket connections..."
+netstat -anpt 2>/dev/null | grep -E "6[0-9][0-9][0-9]|7[0-9][0-9][0-9]" | grep "TIME_WAIT"
+
 # Final verification
 remaining=$(ps aux | grep python | grep -E "peerProcess|setup_demo|multi_machine" | grep -v grep | wc -l)
 
@@ -35,4 +39,17 @@ else
     ps aux | grep python | grep -E "peerProcess|setup_demo|multi_machine" | grep -v grep
 fi
 
-echo "Cleanup script finished."
+# Optional: Clean up any partial files that might be corrupted
+echo "Looking for partial downloads (optional cleanup)..."
+for dir in peer_*; do
+    if [ -d "$dir" ]; then
+        for file in "$dir"/*; do
+            if [[ "$file" != *".bak" && -f "$file" ]]; then
+                size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null)
+                echo "Found file: $file (Size: $size bytes)"
+            fi
+        done
+    fi
+done
+
+echo "Cleanup script finished. Ready for a fresh test."

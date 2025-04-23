@@ -1,0 +1,19 @@
+Log file for Peer 1005
+Started at: 2025-04-22 21:27:53
+--------------------------------------------------------------------------------
+2025-04-22 21:27:53: Peer 1005 makes a connection to Peer 1001.
+2025-04-22 21:27:53: Peer 1005 makes a connection to Peer 1002.
+2025-04-22 21:27:53: Peer 1005 makes a connection to Peer 1003.
+2025-04-22 21:27:53: Peer 1005 makes a connection to Peer 1004.
+2025-04-22 21:27:54: Peer 1005 received the 'have' message from 1003 for the piece 0.
+2025-04-22 21:27:56: Peer 1005 received the 'have' message from 1004 for the piece 0.
+2025-04-22 21:27:58: Peer 1005 has the preferred neighbors 1003, 1004.
+2025-04-22 21:27:58: Peer 1005 received the 'not interested' message from 1003.
+2025-04-22 21:27:58: Peer 1005 received the 'not interested' message from 1004.
+2025-04-22 21:27:58: Peer 1005 received the 'interested' message from 1003.
+2025-04-22 21:27:58: Peer 1005 received the 'interested' message from 1002.
+2025-04-22 21:27:58: Peer 1005 received the 'interested' message from 1004.
+2025-04-22 21:27:59: Peer 1005 is unchoked by 1003.
+2025-04-22 21:28:01: Peer 1005 is unchoked by 1004.
+2025-04-22 21:28:03: Peer 1005 has the optimistically unchoked neighbor 1002.
+2025-04-22 21:28:03: Peer 1005 has the preferred neighbors 1003.

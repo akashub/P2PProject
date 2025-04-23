@@ -1,0 +1,22 @@
+Log file for Peer 1004
+Started at: 2025-04-22 21:27:51
+--------------------------------------------------------------------------------
+2025-04-22 21:27:51: Peer 1004 makes a connection to Peer 1001.
+2025-04-22 21:27:51: Peer 1004 makes a connection to Peer 1002.
+2025-04-22 21:27:51: Peer 1004 makes a connection to Peer 1003.
+2025-04-22 21:27:52: Peer 1004 received the 'have' message from 1002 for the piece 0.
+2025-04-22 21:27:53: Peer 1004 is connected from Peer 1005.
+2025-04-22 21:27:54: Peer 1004 received the 'have' message from 1003 for the piece 0.
+2025-04-22 21:27:56: Peer 1004 has the preferred neighbors 1002, 1003.
+2025-04-22 21:27:56: Peer 1004 received the 'not interested' message from 1003.
+2025-04-22 21:27:56: Peer 1004 received the 'not interested' message from 1002.
+2025-04-22 21:27:56: Peer 1004 received the 'interested' message from 1003.
+2025-04-22 21:27:56: Peer 1004 received the 'interested' message from 1005.
+2025-04-22 21:27:56: Peer 1004 received the 'interested' message from 1002.
+2025-04-22 21:27:57: Peer 1004 is unchoked by 1002.
+2025-04-22 21:27:58: Peer 1004 is unchoked by 1005.
+2025-04-22 21:27:58: Peer 1004 received the 'have' message from 1005 for the piece 0.
+2025-04-22 21:27:59: Peer 1004 is unchoked by 1003.
+2025-04-22 21:28:01: Peer 1004 has the preferred neighbors 1002, 1003, 1005.
+2025-04-22 21:28:01: Peer 1004 received the 'not interested' message from 1005.
+2025-04-22 21:28:03: Peer 1004 is choked by 1005.

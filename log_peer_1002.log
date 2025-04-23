@@ -1,0 +1,17 @@
+Log file for Peer 1002
+Started at: 2025-04-22 21:27:47
+--------------------------------------------------------------------------------
+2025-04-22 21:27:47: Peer 1002 makes a connection to Peer 1001.
+2025-04-22 21:27:49: Peer 1002 is connected from Peer 1003.
+2025-04-22 21:27:51: Peer 1002 is connected from Peer 1004.
+2025-04-22 21:27:52: Peer 1002 received the 'interested' message from 1004.
+2025-04-22 21:27:52: Peer 1002 received the 'interested' message from 1003.
+2025-04-22 21:27:53: Peer 1002 is connected from Peer 1005.
+2025-04-22 21:27:54: Peer 1002 is unchoked by 1003.
+2025-04-22 21:27:54: Peer 1002 received the 'have' message from 1003 for the piece 0.
+2025-04-22 21:27:56: Peer 1002 is unchoked by 1004.
+2025-04-22 21:27:56: Peer 1002 received the 'have' message from 1004 for the piece 0.
+2025-04-22 21:27:57: Peer 1002 has the optimistically unchoked neighbor 1004.
+2025-04-22 21:27:57: Peer 1002 has the preferred neighbors 1003.
+2025-04-22 21:27:58: Peer 1002 received the 'have' message from 1005 for the piece 0.
+2025-04-22 21:28:03: Peer 1002 is unchoked by 1005.
