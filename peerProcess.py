@@ -133,7 +133,7 @@ def main():
     for peer in peers:
         if peer.peer_id == peer_id:
             found_self = True
-            break
+            continue
         # Add peers that started before the current one
         other_ip = peer.hostname
         other_peers.append([other_ip, peer.port])
