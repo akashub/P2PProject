@@ -188,7 +188,7 @@ class Client:
         self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             # Always listen on localhost regardless of configured host
-            listen_host = self.host
+            listen_host = "0.0.0.0"
             self.s.bind((listen_host, self.port))
             self.s.listen(10)
             print(f"Listening on {listen_host}:{self.port} (configured host was {self.host})")

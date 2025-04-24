@@ -15,8 +15,8 @@ This project implements a robust peer-to-peer file sharing system based on the B
 
 ## Team Members
 
-- **Aakash**: Core protocol implementation, piece message handling, demo environment setup
-- **Aelly**: Logging system, connection robustness
+- **Aakash**: Protocol implementation, environment and multi_machine setup
+- **Aelly**: Logging system, connection robustness, piece message handling
 - **Helen**: File handling, choking/unchoking mechanism
 
 ## Quick Start Guide
