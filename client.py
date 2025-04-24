@@ -105,9 +105,10 @@ class Client:
         self.file_pieces_lock = threading.Lock()
         self.requests_lock = threading.Lock()
         
-        
+
         # For threading control
         self.running = True
+        self.s = None
         
         # Debug info
         print(f"Client initialized with:")
@@ -198,7 +199,7 @@ class Client:
                     peer_socket, peer_address = self.s.accept()
                     print(f"Accepted connection from {peer_address}")
                     threading.Thread(target=self.setup_connection_from_listening,
-                                    args=(peer_socket, peer_address), daemon=True).start()
+                                    args=(peer_socket,), daemon=True).start()
                 except socket.error as e:
                     if not self.running:
                         break
@@ -222,7 +223,7 @@ class Client:
                         peer_socket, peer_address = self.s.accept()
                         print(f"Accepted connection from {peer_address}")
                         threading.Thread(target=self.setup_connection_from_listening,
-                                        args=(peer_socket, peer_address), daemon=True).start()
+                                        args=(peer_socket,), daemon=True).start()
                     except socket.error as e:
                         if not self.running:
                             break
@@ -275,7 +276,7 @@ class Client:
                 # Retry after 5 seconds
                 threading.Thread(target=retry_connect, args=(peer, 5), daemon=True).start()
                 
-    def setup_connection_from_listening(self, peer_socket, peer_address):
+    def setup_connection_from_listening(self, peer_socket):
         """Handle incoming connections from other peers"""
         try:
             # When a peer connects, they send the first handshake
@@ -320,9 +321,9 @@ class Client:
                 print(f"Sent bitfield to peer {peer_id}")
             else:
                 print("skipped bitfield bc empty")
-            
+
             # Start receiving messages from this peer
-            
+
             self.receive_from_peer(peer)
             
         except Exception as e:
@@ -384,7 +385,7 @@ class Client:
             
     def receive_from_peer(self, peer):
         """Process messages from a peer"""
-        while self.running:
+        while self.running and peer.socket and peer.socket.fileno() >= 0:
             try:
                 mlength_bytes = self.recv_exactly(peer.socket, 4)
                 if not mlength_bytes:
@@ -809,7 +810,7 @@ class Client:
                 if self.bitfield[i] == '0' and peer.bitfield[i] == '1' and not self.pieces_requested[i]:
                     desired_pieces.append(i)
 
-        print(f"Pieces available from peer {peer.ID}: {len(desired_pieces)}")
+        # print(f"Pieces available from peer {peer.ID}: {len(desired_pieces)}")
 
         if desired_pieces:
             with self.requests_lock:
@@ -819,7 +820,7 @@ class Client:
                     random_piece = random.choice(desired_pieces)
                     peer.requested_piece = random_piece
 
-            print(f"Requesting piece {random_piece} from peer {peer.ID}")
+            # print(f"Requesting piece {random_piece} from peer {peer.ID}")
             self.pieces_requested[random_piece] = True
 
             # Send request message
@@ -887,7 +888,7 @@ class Client:
 
             all_peers_complete = True
             for p in self.peers:
-                if not peer.complete:
+                if not p.complete:
                     all_peers_complete = False
             self.reconstruct_file()
             if all_peers_complete:
