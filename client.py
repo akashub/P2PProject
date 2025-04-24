@@ -900,6 +900,9 @@ class Client:
 
     def remove_peer(self, peer):
         """Remove peer from all collections and close socket"""
+        if peer not in self.peers:
+            return
+
         try:
             print(f"Removing peer {peer.ID} from connections")
             
