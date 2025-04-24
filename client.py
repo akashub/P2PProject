@@ -144,7 +144,6 @@ class Client:
                             if i == NUM_PIECES - 1:  # Last piece
                                 remaining_size = self.config.file_size - start
                                 piece_data = f.read(remaining_size)
-                                print("final piece: ", remaining_size)
                             else:
                                 piece_data = f.read(self.config.piece_size)
 
@@ -316,11 +315,10 @@ class Client:
             if self.bitfield != "0" * NUM_PIECES:
                 bitfield_message = self.make_bitfield_message(self.bitfield)
                 encoded_message = bitfield_message.get_message()
-                print(encoded_message)
+
                 peer_socket.sendall(encoded_message)
                 print(f"Sent bitfield to peer {peer_id}")
-            else:
-                print("skipped bitfield bc empty")
+
 
             # Start receiving messages from this peer
 
@@ -370,12 +368,10 @@ class Client:
             if self.bitfield != "0" * NUM_PIECES:
                 bitfield_message = self.make_bitfield_message(self.bitfield)
                 encoded_message = bitfield_message.get_message()
-                print(encoded_message)
+
                 peer_socket.sendall(encoded_message)
                 print(f"Sent bitfield to peer {peer_id}")
-            else:
-                print("skipping sending bitfield bc empty")
-            # Start receiving messages from this peer
+
 
             self.receive_from_peer(peer)
             
@@ -487,7 +483,7 @@ class Client:
                             break
                             
                         peer.bitfield = ''.join(f'{byte:08b}' for byte in bitfield_bytes)
-                        print(f"Received bitfield from peer {peer.ID}: {peer.bitfield}")
+                        print(f"Received bitfield from peer {peer.ID}")
                         
                         if peer.bitfield.count('1') == NUM_PIECES :
                             peer.complete = True
@@ -825,7 +821,7 @@ class Client:
 
             # Send request message
             request_message = self.make_request_message(random_piece)
-            print(request_message)
+
             try:
                 peer.socket.sendall(request_message.get_message())
                 print(f"Sent request for piece {random_piece} to peer {peer.ID}")
@@ -929,7 +925,7 @@ class Client:
             print(f"Error removing peer {peer.ID}: {e}")
     def reconstruct_file(self):
         """Reconstruct the complete file from pieces with validation"""
-        print(f"Piece lengths: {[len(piece) for piece in self.file_pieces]}")
+
         try:
             output_file = os.path.join(self.peer_directory, self.config.file_name)
             print(f"Reconstructing file to: {output_file}")
